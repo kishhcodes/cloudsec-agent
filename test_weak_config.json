@@ -1,0 +1,39 @@
+{
+    "aws": {
+        "account_settings": {
+            "default_region": "us-east-1",
+            "config_version": "1.0",
+            "security": {
+                "iam": {
+                    "password_policy": {
+                        "minimum_length": 6,
+                        "require_uppercase": false,
+                        "require_lowercase": true,
+                        "require_numbers": false,
+                        "require_symbols": false,
+                        "max_age_days": 180,
+                        "allow_reuse": true,
+                        "reuse_prevention_count": 3
+                    },
+                    "root_account": {
+                        "mfa_enabled": false,
+                        "access_key_active": true
+                    }
+                },
+                "s3": {
+                    "default_acl": "public-read-write",
+                    "versioning": "disabled",
+                    "logging": "disabled"
+                },
+                "cloudtrail": {
+                    "enabled": false,
+                    "multi_region": false,
+                    "log_validation": false
+                },
+                "vpc": {
+                    "flow_logs": "disabled"
+                }
+            }
+        }
+    }
+}

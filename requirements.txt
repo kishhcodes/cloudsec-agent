@@ -1,0 +1,15 @@
+langchain
+langchain-community
+langchain-google-genai
+faiss-cpu
+fastapi
+uvicorn
+rich
+python-dotenv
+google-generativeai
+google-search-results
+typer
+aiohttp
+tabulate
+reportlab
+matplotlib

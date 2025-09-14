@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# Run the Security Analyzer CLI
+python security_analyzer_cli.py "$@"

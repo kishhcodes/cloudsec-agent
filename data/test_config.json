@@ -1,0 +1,101 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Example CloudFormation Template with Security Poisoning",
+  "Resources": {
+    "WideScopeSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Security Group with wide-open SSH access",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow SSH from anywhere"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "3389",
+            "ToPort": "3389",
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow RDP from anywhere"
+          }
+        ]
+      }
+    },
+    "AdminUser": {
+      "Type": "AWS::IAM::User",
+      "Properties": {
+        "UserName": "admin-backdoor",
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AdministratorAccess"
+        ]
+      }
+    },
+    "AdminAccessKey": {
+      "Type": "AWS::IAM::AccessKey",
+      "Properties": {
+        "UserName": { "Ref": "AdminUser" }
+      }
+    },
+    "AdminUserPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "full-admin-access",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Action": "*",
+            "Resource": "*"
+          }]
+        },
+        "Users": [{ "Ref": "AdminUser" }]
+      }
+    },
+    "InsecureS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": "very-insecure-logging-bucket",
+        "AccessControl": "PublicReadWrite",
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": false,
+          "BlockPublicPolicy": false,
+          "IgnorePublicAcls": false,
+          "RestrictPublicBuckets": false
+        },
+        "ServerSideEncryptionConfiguration": {
+          "ServerSideEncryptionByDefault": {
+            "SSEAlgorithm": "AES256"
+          },
+          "BucketEncryptionEnabled": false
+        }
+      }
+    },
+    "WeakRDSInstance": {
+      "Type": "AWS::RDS::DBInstance",
+      "Properties": {
+        "DBName": "weakdb",
+        "Engine": "mysql",
+        "MasterUsername": "admin",
+        "MasterUserPassword": "Password123!",
+        "DBInstanceClass": "db.t3.micro",
+        "AllocatedStorage": "20",
+        "StorageEncrypted": false,
+        "PubliclyAccessible": true,
+        "MultiAZ": false
+      }
+    }
+  },
+  "Outputs": {
+    "AccessKey": {
+      "Description": "Access Key for Admin User",
+      "Value": { "Ref": "AdminAccessKey" }
+    },
+    "SecretKey": {
+      "Description": "Secret Key for Admin User",
+      "Value": { "Fn::GetAtt": ["AdminAccessKey", "SecretAccessKey"] }
+    }
+  }
+}

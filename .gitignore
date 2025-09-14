@@ -1,0 +1,131 @@
+# Python environment and cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Python testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+pytest-report.xml
+.nox/
+nosetests.xml
+
+# Python distribution and packaging
+wheels/
+*.manifest
+*.spec
+
+# Virtual environment
+env/
+.env
+.venv
+venv/
+ENV/
+cloudagent/
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+.spyderproject
+.spyproject
+.ropeproject
+
+# Environment variables
+.env
+.env.*
+
+# AWS specific
+credentials
+.aws/
+aws-credentials
+
+# API credentials and sensitive files
+config/vertex.json
+config/*credentials*.json
+config/*secret*.json
+*api_key*
+*apikey*
+*credentials*
+*secrets*
+
+# Logs
+*.log
+
+# Files that aren't part of our core functionality but we want to keep locally
+# Old/alternate implementations
+aws_security_agent.py
+aws_security_agent_v2.py
+
+# Utility scripts that aren't needed in version control
+cleanup.sh
+article_search.py
+aws_credential_test.py
+
+# Installation files
+awscliv2.zip
+
+# Data directory - only track structure, not content
+data/embeddings/*
+!data/embeddings/index/
+data/embeddings/index/*
+!data/embeddings/index/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+# Excluding potentially sensitive benchmark files
+data/raw/CIS_*.pdf
+
+# Allow README and configuration files
+!*.md
+!config/
+
+# Generated and temporary files
+.tox/
+*.cover
+
+# Generated reports
+reports/*
+!reports/.gitkeep
+*.pdf
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
