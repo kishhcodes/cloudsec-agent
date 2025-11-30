@@ -86,7 +86,7 @@ class CloudAssistant:
                 raise ValueError("No Google API key found in environment variables")
             
             # Initialize the LLM
-            model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-pro")
+            model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-pro")
             return ChatGoogleGenerativeAI(
                 model=model_name,
                 temperature=0.2,

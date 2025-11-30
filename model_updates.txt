@@ -1,0 +1,16 @@
+# Gemini Model Updates
+
+The following files were updated to use newer Gemini models:
+
+
+## Gemini 1.5 Pro to Gemini 2.5 Pro Updates:
+./aws_security_agent_og.py
+./aws_security_agent.py
+./main_cli.py
+./quick_security_agent.py
+./src/agents/compliance_bot/llm.py
+./src/agents/security_analyzer/agent.py
+
+
+## Embedding Model Updates (001 to 002):
+./src/agents/compliance_bot/retriever.py

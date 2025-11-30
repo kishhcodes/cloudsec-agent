@@ -25,6 +25,59 @@ class WebSearcher:
         if not self.api_key:
             raise ValueError("SERPAPI API key not found. Please set SERPAPI_API_KEY environment variable.")
     
+    def find_article(self, query: str) -> Dict[str, Any]:
+        """
+        Find articles based on a user query. This is the main method used by the CLI.
+        
+        Args:
+            query: User's search query
+            
+        Returns:
+            Dictionary with search results and metadata
+        """
+        # Extract key information from query
+        author_match = re.search(r'(?:by|author|written by)\s+([^.,]+)', query, re.IGNORECASE)
+        topic_match = re.search(r'(?:about|on|regarding|related to|topic)\s+([^.,]+)', query, re.IGNORECASE)
+        
+        author = author_match.group(1).strip() if author_match else None
+        topic = topic_match.group(1).strip() if topic_match else None
+        
+        # If no specific author or topic, use the entire query
+        search_query = query
+        if author and topic:
+            search_query = f"{author} {topic}"
+        elif author:
+            search_query = f"{author} article"
+        elif topic:
+            search_query = f"{topic} security article"
+            
+        # Perform search
+        try:
+            results = self._general_search(search_query)
+            
+            if not results:
+                # Try a broader search if specific search didn't yield results
+                broader_query = re.sub(r'(?:by|author|written by|about|on|regarding|related to)\s+([^.,]+)', '', query).strip()
+                if broader_query and broader_query != query:
+                    results = self._general_search(broader_query)
+            
+            return {
+                "found": bool(results),
+                "query": search_query,
+                "results": results,
+                "suggestion": "Try broadening your search or using different keywords" if not results else None
+            }
+        
+        except Exception as e:
+            console.print(f"[bold red]Error searching for articles:[/bold red] {str(e)}")
+            return {
+                "found": False,
+                "query": search_query,
+                "results": [],
+                "error": str(e),
+                "suggestion": "Please check your internet connection or API key and try again"
+            }
+    
     def search_article(self, author: str, topic: Optional[str] = None, max_results: int = 5) -> List[Dict[str, Any]]:
         """
         Search for articles by a specific author, optionally about a specific topic.
@@ -247,20 +300,89 @@ class WebSearcher:
         return sorted(processed, key=lambda x: x["relevance_score"], reverse=True)
 
 
-# Function to demonstrate using the WebSearcher
+    def _general_search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """
+        Perform a general search for articles based on a query.
+        
+        Args:
+            query: Search query
+            max_results: Maximum number of results to return
+            
+        Returns:
+            List of article information
+        """
+        search_params = {
+            "engine": "google",
+            "q": f"{query} security article",
+            "api_key": self.api_key,
+            "num": max_results * 2,  # Request more to filter down
+            "gl": "us",  # Set region to US for consistent results
+        }
+        
+        try:
+            search = GoogleSearch(search_params)
+            results = search.get_dict()
+            
+            # Check if we have organic results
+            if "organic_results" not in results:
+                return []
+                
+            # Process and filter results
+            article_results = []
+            for result in results["organic_results"][:max_results*2]:
+                if self._looks_like_article(result):
+                    article_results.append({
+                        "title": result.get("title", ""),
+                        "link": result.get("link", ""),
+                        "snippet": result.get("snippet", ""),
+                        "date": self._extract_date(result.get("snippet", "")),
+                        "source": self._extract_source(result.get("link", "")),
+                    })
+                    
+                    if len(article_results) >= max_results:
+                        break
+                        
+            return article_results
+            
+        except Exception as e:
+            console.print(f"[bold red]Search error:[/bold red] {str(e)}")
+            return []
+
+
+# Example usage function (not used directly by the CLI)
+# Function to expose to the CLI
 def find_article(query: str) -> Dict[str, Any]:
     """
     Find articles or specific content based on a natural language query.
     
     Args:
-        query: Natural language query (e.g., "Maciej Pocwierz posted an article regarding S3 bucket")
+        query: Natural language query (e.g., "articles about AWS security best practices")
         
     Returns:
         Dict with search results and information
     """
     try:
         searcher = WebSearcher()
-        results = searcher.search_specific_content(query)
+        
+        # Extract topic and author if present
+        author_match = re.search(r"by\s+([A-Z][a-z]+\s+[A-Z][a-z]+)", query, re.IGNORECASE)
+        
+        if author_match:
+            author = author_match.group(1)
+            results = searcher.search_specific_content(query)
+        else:
+            # Use general search
+            article_results = searcher._general_search(query)
+            
+            if article_results:
+                results = {
+                    "found": True,
+                    "query": query,
+                    "results": article_results,
+                    "count": len(article_results)
+                }
+            else:
+                results = {"found": False, "query": query, "results": [], "count": 0}
         
         # Check if we found any results
         if not results["found"]:
