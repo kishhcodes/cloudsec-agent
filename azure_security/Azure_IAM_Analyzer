@@ -1,0 +1,305 @@
+"""
+Azure IAM Analyzer - Entra ID and RBAC Security Analysis
+Analyzes role assignments, service principals, managed identities, and access policies
+"""
+
+import logging
+from typing import Dict, List, Any
+from azure.identity import DefaultAzureCredential
+from azure.mgmt.authorization import AuthorizationManagementClient
+from azure.mgmt.msi import ManagedServiceIdentityClient
+from azure.mgmt.resource import ResourceManagementClient
+
+logger = logging.getLogger(__name__)
+
+
+class IAMAnalyzer:
+    """Analyzes Azure Identity and Access Management security"""
+    
+    # High-risk built-in roles
+    PRIVILEGED_ROLES = [
+        "Owner",
+        "Contributor",
+        "User Access Administrator",
+        "Security Admin",
+        "Global Administrator"
+    ]
+    
+    def __init__(self, credential, subscription_id: str):
+        self.credential = credential
+        self.subscription_id = subscription_id
+        
+        # Initialize clients
+        self.auth_client = AuthorizationManagementClient(
+            credential, subscription_id
+        )
+        self.msi_client = ManagedServiceIdentityClient(
+            credential, subscription_id
+        )
+        self.resource_client = ResourceManagementClient(
+            credential, subscription_id
+        )
+    
+    def analyze(self) -> Dict[str, Any]:
+        """
+        Perform comprehensive IAM security analysis
+        
+        Returns:
+            Dictionary containing IAM security findings
+        """
+        findings = {
+            "issues": [],
+            "summary": {
+                "total_role_assignments": 0,
+                "privileged_assignments": 0,
+                "managed_identities": 0,
+                "orphaned_assignments": 0
+            }
+        }
+        
+        # Analyze role assignments
+        role_findings = self._analyze_role_assignments()
+        findings["issues"].extend(role_findings["issues"])
+        findings["summary"]["total_role_assignments"] = role_findings["total"]
+        findings["summary"]["privileged_assignments"] = role_findings["privileged"]
+        
+        # Analyze managed identities
+        msi_findings = self._analyze_managed_identities()
+        findings["issues"].extend(msi_findings["issues"])
+        findings["summary"]["managed_identities"] = msi_findings["total"]
+        
+        # Check for overly permissive custom roles
+        custom_role_findings = self._analyze_custom_roles()
+        findings["issues"].extend(custom_role_findings)
+        
+        return findings
+    
+    def _analyze_role_assignments(self) -> Dict[str, Any]:
+        """Analyze RBAC role assignments for security issues"""
+        issues = []
+        total_count = 0
+        privileged_count = 0
+        
+        try:
+            # Get all role assignments for subscription
+            scope = f"/subscriptions/{self.subscription_id}"
+            assignments = list(self.auth_client.role_assignments.list_for_scope(scope))
+            total_count = len(assignments)
+            
+            logger.info(f"Analyzing {total_count} role assignments...")
+            
+            for assignment in assignments:
+                try:
+                    # Get role definition
+                    role_def = self.auth_client.role_definitions.get_by_id(
+                        assignment.role_definition_id
+                    )
+                    role_name = role_def.role_name
+                    
+                    # Check for privileged roles
+                    if role_name in self.PRIVILEGED_ROLES:
+                        privileged_count += 1
+                        
+                        # Check scope - subscription-level privileged roles are critical
+                        if assignment.scope == scope:
+                            issues.append({
+                                "severity": "CRITICAL",
+                                "category": "IAM",
+                                "title": f"Subscription-level {role_name} role assignment",
+                                "description": f"Principal {assignment.principal_id} has {role_name} "
+                                             f"role at subscription scope. This grants extensive permissions.",
+                                "resource": assignment.scope,
+                                "recommendation": "Review if this level of access is necessary. "
+                                                "Consider limiting scope to specific resource groups."
+                            })
+                        else:
+                            issues.append({
+                                "severity": "HIGH",
+                                "category": "IAM",
+                                "title": f"Privileged role assignment: {role_name}",
+                                "description": f"Principal {assignment.principal_id} has {role_name} role",
+                                "resource": assignment.scope,
+                                "recommendation": "Review if this privileged access is required. "
+                                                "Use least privilege principle."
+                            })
+                    
+                    # Check for wildcard permissions in custom roles
+                    if role_def.role_type == "CustomRole":
+                        self._check_custom_role_permissions(role_def, assignment, issues)
+                
+                except Exception as e:
+                    logger.warning(f"Could not analyze assignment {assignment.id}: {e}")
+            
+            # Check for too many subscription-level assignments
+            subscription_assignments = [a for a in assignments if a.scope == scope]
+            if len(subscription_assignments) > 10:
+                issues.append({
+                    "severity": "MEDIUM",
+                    "category": "IAM",
+                    "title": "Excessive subscription-level role assignments",
+                    "description": f"Found {len(subscription_assignments)} role assignments at "
+                                 "subscription scope. This may indicate overly broad access.",
+                    "resource": scope,
+                    "recommendation": "Review and limit subscription-level assignments. "
+                                    "Use resource group or resource-level scoping where possible."
+                })
+        
+        except Exception as e:
+            logger.error(f"Role assignment analysis failed: {e}")
+            issues.append({
+                "severity": "HIGH",
+                "category": "IAM",
+                "title": "Role assignment analysis failed",
+                "description": str(e),
+                "resource": "Subscription",
+                "recommendation": "Investigate authorization client permissions"
+            })
+        
+        return {
+            "issues": issues,
+            "total": total_count,
+            "privileged": privileged_count
+        }
+    
+    def _check_custom_role_permissions(self, role_def, assignment, issues: List):
+        """Check custom roles for overly permissive actions"""
+        dangerous_actions = ["*", "*/write", "*/delete", "Microsoft.Authorization/*"]
+        
+        for permission in role_def.permissions:
+            for action in permission.actions:
+                if action in dangerous_actions:
+                    issues.append({
+                        "severity": "HIGH",
+                        "category": "IAM",
+                        "title": f"Custom role with dangerous permission: {action}",
+                        "description": f"Custom role '{role_def.role_name}' contains "
+                                     f"overly permissive action '{action}'",
+                        "resource": assignment.scope,
+                        "recommendation": "Refine custom role permissions to be more specific. "
+                                        "Avoid wildcard permissions."
+                    })
+    
+    def _analyze_managed_identities(self) -> Dict[str, Any]:
+        """Analyze managed identities for security issues"""
+        issues = []
+        total_count = 0
+        
+        try:
+            # Get all resource groups
+            resource_groups = list(self.resource_client.resource_groups.list())
+            
+            for rg in resource_groups:
+                try:
+                    # List user-assigned managed identities in resource group
+                    identities = list(
+                        self.msi_client.user_assigned_identities.list_by_resource_group(
+                            rg.name
+                        )
+                    )
+                    
+                    total_count += len(identities)
+                    
+                    for identity in identities:
+                        # Check if managed identity has role assignments
+                        identity_assignments = list(
+                            self.auth_client.role_assignments.list_for_scope(
+                                identity.id
+                            )
+                        )
+                        
+                        if not identity_assignments:
+                            issues.append({
+                                "severity": "LOW",
+                                "category": "IAM",
+                                "title": "Unused managed identity",
+                                "description": f"Managed identity '{identity.name}' has no "
+                                             "role assignments and may be unused",
+                                "resource": identity.id,
+                                "recommendation": "Review if this identity is still needed. "
+                                                "Remove unused identities to reduce attack surface."
+                            })
+                
+                except Exception as e:
+                    logger.warning(f"Could not analyze identities in {rg.name}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Managed identity analysis failed: {e}")
+        
+        return {
+            "issues": issues,
+            "total": total_count
+        }
+    
+    def _analyze_custom_roles(self) -> List[Dict[str, Any]]:
+        """Analyze custom role definitions for security issues"""
+        issues = []
+        
+        try:
+            scope = f"/subscriptions/{self.subscription_id}"
+            custom_roles = [
+                role for role in self.auth_client.role_definitions.list(scope)
+                if role.role_type == "CustomRole"
+            ]
+            
+            logger.info(f"Analyzing {len(custom_roles)} custom roles...")
+            
+            for role in custom_roles:
+                # Check for overly broad permissions
+                for permission in role.permissions:
+                    # Check for wildcard actions
+                    if "*" in permission.actions:
+                        issues.append({
+                            "severity": "CRITICAL",
+                            "category": "IAM",
+                            "title": f"Custom role with wildcard permissions: {role.role_name}",
+                            "description": "Custom role grants all permissions (*) which is "
+                                         "extremely dangerous",
+                            "resource": role.id,
+                            "recommendation": "Redefine role with specific, granular permissions. "
+                                            "Never use wildcard permissions in custom roles."
+                        })
+                    
+                    # Check for dangerous data actions
+                    if permission.data_actions and "*" in permission.data_actions:
+                        issues.append({
+                            "severity": "HIGH",
+                            "category": "IAM",
+                            "title": f"Custom role with wildcard data actions: {role.role_name}",
+                            "description": "Custom role grants all data actions which may "
+                                         "expose sensitive data",
+                            "resource": role.id,
+                            "recommendation": "Limit data actions to specific operations needed"
+                        })
+        
+        except Exception as e:
+            logger.error(f"Custom role analysis failed: {e}")
+        
+        return issues
+    
+    def analyze_resource_group(self, resource_group: str) -> Dict[str, Any]:
+        """Analyze IAM security for a specific resource group"""
+        findings = {"issues": []}
+        
+        try:
+            scope = f"/subscriptions/{self.subscription_id}/resourceGroups/{resource_group}"
+            assignments = list(self.auth_client.role_assignments.list_for_scope(scope))
+            
+            for assignment in assignments:
+                role_def = self.auth_client.role_definitions.get_by_id(
+                    assignment.role_definition_id
+                )
+                
+                if role_def.role_name in self.PRIVILEGED_ROLES:
+                    findings["issues"].append({
+                        "severity": "HIGH",
+                        "category": "IAM",
+                        "title": f"Privileged role in resource group: {role_def.role_name}",
+                        "description": f"Principal {assignment.principal_id} has privileged access",
+                        "resource": resource_group,
+                        "recommendation": "Review necessity of privileged access"
+                    })
+        
+        except Exception as e:
+            logger.error(f"Resource group IAM analysis failed: {e}")
+        
+        return findings

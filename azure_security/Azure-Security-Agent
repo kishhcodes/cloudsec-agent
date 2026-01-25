@@ -1,0 +1,286 @@
+"""
+Azure Security Agent - Main Agent Module
+Provides comprehensive security analysis for Azure cloud resources
+"""
+
+import logging
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+from azure.identity import DefaultAzureCredential, ClientSecretCredential
+from azure.mgmt.resource import ResourceManagementClient
+from azure.mgmt.subscription import SubscriptionClient
+
+# Import analyzers
+from .analyzers.iam_analyzer import IAMAnalyzer
+from .analyzers.storage_analyzer import StorageAnalyzer
+from .analyzers.compute_analyzer import ComputeAnalyzer
+from .analyzers.network_analyzer import NetworkAnalyzer
+
+logger = logging.getLogger(__name__)
+
+
+class AzureSecurityAgent:
+    """
+    Main Azure Security Agent for comprehensive cloud security analysis
+    Supports Entra ID, Storage, Compute, and Network security auditing
+    """
+    
+    def __init__(self, 
+                 subscription_id: Optional[str] = None,
+                 tenant_id: Optional[str] = None,
+                 client_id: Optional[str] = None,
+                 client_secret: Optional[str] = None):
+        """
+        Initialize Azure Security Agent
+        
+        Args:
+            subscription_id: Azure subscription ID (optional, can be discovered)
+            tenant_id: Azure AD tenant ID (for service principal auth)
+            client_id: Service principal client ID
+            client_secret: Service principal client secret
+        """
+        self.subscription_id = subscription_id
+        self.tenant_id = tenant_id
+        
+        # Initialize credentials
+        if client_id and client_secret and tenant_id:
+            self.credential = ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret
+            )
+            logger.info("Using Service Principal authentication")
+        else:
+            self.credential = DefaultAzureCredential()
+            logger.info("Using DefaultAzureCredential authentication")
+        
+        # Discover subscription if not provided
+        if not self.subscription_id:
+            self.subscription_id = self._discover_subscription()
+        
+        # Initialize resource client
+        self.resource_client = ResourceManagementClient(
+            self.credential,
+            self.subscription_id
+        )
+        
+        # Initialize analyzers
+        self.iam_analyzer = IAMAnalyzer(self.credential, self.subscription_id)
+        self.storage_analyzer = StorageAnalyzer(self.credential, self.subscription_id)
+        self.compute_analyzer = ComputeAnalyzer(self.credential, self.subscription_id)
+        self.network_analyzer = NetworkAnalyzer(self.credential, self.subscription_id)
+        
+        logger.info(f"Azure Security Agent initialized for subscription: {self.subscription_id}")
+    
+    def _discover_subscription(self) -> str:
+        """Discover the first available subscription"""
+        try:
+            subscription_client = SubscriptionClient(self.credential)
+            subscriptions = list(subscription_client.subscriptions.list())
+            
+            if not subscriptions:
+                raise ValueError("No Azure subscriptions found")
+            
+            subscription_id = subscriptions[0].subscription_id
+            logger.info(f"Discovered subscription: {subscription_id}")
+            return subscription_id
+            
+        except Exception as e:
+            logger.error(f"Failed to discover subscription: {e}")
+            raise
+    
+    def analyze_iam_security(self) -> Dict[str, Any]:
+        """
+        Analyze Azure Identity and Access Management security
+        Covers Entra ID, RBAC, Service Principals, Managed Identities
+        
+        Returns:
+            Dictionary containing IAM security findings
+        """
+        logger.info("Starting IAM security analysis...")
+        try:
+            findings = self.iam_analyzer.analyze()
+            logger.info(f"IAM analysis complete. Found {len(findings.get('issues', []))} issues")
+            return findings
+        except Exception as e:
+            logger.error(f"IAM analysis failed: {e}")
+            return {"error": str(e), "issues": []}
+    
+    def analyze_storage_security(self) -> Dict[str, Any]:
+        """
+        Analyze Azure Storage security
+        Covers Blob Storage, Data Lake, encryption, access controls
+        
+        Returns:
+            Dictionary containing storage security findings
+        """
+        logger.info("Starting storage security analysis...")
+        try:
+            findings = self.storage_analyzer.analyze()
+            logger.info(f"Storage analysis complete. Found {len(findings.get('issues', []))} issues")
+            return findings
+        except Exception as e:
+            logger.error(f"Storage analysis failed: {e}")
+            return {"error": str(e), "issues": []}
+    
+    def analyze_compute_security(self) -> Dict[str, Any]:
+        """
+        Analyze Azure Compute security
+        Covers VMs, AKS, App Services, Container Instances
+        
+        Returns:
+            Dictionary containing compute security findings
+        """
+        logger.info("Starting compute security analysis...")
+        try:
+            findings = self.compute_analyzer.analyze()
+            logger.info(f"Compute analysis complete. Found {len(findings.get('issues', []))} issues")
+            return findings
+        except Exception as e:
+            logger.error(f"Compute analysis failed: {e}")
+            return {"error": str(e), "issues": []}
+    
+    def analyze_network_security(self) -> Dict[str, Any]:
+        """
+        Analyze Azure Network security
+        Covers VNets, NSGs, Firewalls, Application Gateways
+        
+        Returns:
+            Dictionary containing network security findings
+        """
+        logger.info("Starting network security analysis...")
+        try:
+            findings = self.network_analyzer.analyze()
+            logger.info(f"Network analysis complete. Found {len(findings.get('issues', []))} issues")
+            return findings
+        except Exception as e:
+            logger.error(f"Network analysis failed: {e}")
+            return {"error": str(e), "issues": []}
+    
+    def perform_full_audit(self) -> Dict[str, Any]:
+        """
+        Perform comprehensive security audit across all Azure services
+        Generates detailed findings and PDF report
+        
+        Returns:
+            Dictionary containing complete audit results and report path
+        """
+        logger.info("="*80)
+        logger.info("Starting FULL AZURE SECURITY AUDIT")
+        logger.info("="*80)
+        
+        audit_start = datetime.now()
+        
+        # Perform all security analyses
+        iam_findings = self.analyze_iam_security()
+        storage_findings = self.analyze_storage_security()
+        compute_findings = self.analyze_compute_security()
+        network_findings = self.analyze_network_security()
+        
+        # Aggregate findings
+        all_findings = {
+            "audit_date": audit_start.isoformat(),
+            "subscription_id": self.subscription_id,
+            "iam": iam_findings,
+            "storage": storage_findings,
+            "compute": compute_findings,
+            "network": network_findings
+        }
+        
+        # Calculate summary statistics
+        total_issues = (
+            len(iam_findings.get('issues', [])) +
+            len(storage_findings.get('issues', [])) +
+            len(compute_findings.get('issues', [])) +
+            len(network_findings.get('issues', []))
+        )
+        
+        # Count by severity
+        severity_counts = {
+            "CRITICAL": 0,
+            "HIGH": 0,
+            "MEDIUM": 0,
+            "LOW": 0,
+            "INFO": 0
+        }
+        
+        for category in [iam_findings, storage_findings, compute_findings, network_findings]:
+            for issue in category.get('issues', []):
+                severity = issue.get('severity', 'INFO')
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+        
+        all_findings["summary"] = {
+            "total_issues": total_issues,
+            "severity_breakdown": severity_counts,
+            "audit_duration_seconds": (datetime.now() - audit_start).total_seconds()
+        }
+        
+        audit_end = datetime.now()
+        duration = (audit_end - audit_start).total_seconds()
+        
+        logger.info("="*80)
+        logger.info(f"AZURE AUDIT COMPLETE - Duration: {duration:.2f}s")
+        logger.info(f"Total Issues Found: {total_issues}")
+        logger.info(f"  CRITICAL: {severity_counts['CRITICAL']}")
+        logger.info(f"  HIGH: {severity_counts['HIGH']}")
+        logger.info(f"  MEDIUM: {severity_counts['MEDIUM']}")
+        logger.info(f"  LOW: {severity_counts['LOW']}")
+        logger.info("="*80)
+        
+        # Generate PDF report (will be implemented in audit_generator.py)
+        try:
+            from ..audit.audit_generator import AzureAuditReport
+            
+            report = AzureAuditReport(
+                subscription_id=self.subscription_id,
+                audit_data=all_findings
+            )
+            
+            # Add findings to report
+            report.add_iam_analysis(iam_findings)
+            report.add_storage_analysis(storage_findings)
+            report.add_compute_analysis(compute_findings)
+            report.add_network_analysis(network_findings)
+            
+            # Generate PDF
+            pdf_path = report.generate_pdf()
+            all_findings["report_path"] = pdf_path
+            
+            logger.info(f"PDF Report generated: {pdf_path}")
+            
+        except Exception as e:
+            logger.warning(f"PDF report generation failed: {e}")
+            all_findings["report_path"] = None
+        
+        return all_findings
+    
+    def get_resource_groups(self) -> List[str]:
+        """Get list of all resource groups in subscription"""
+        try:
+            groups = list(self.resource_client.resource_groups.list())
+            return [group.name for group in groups]
+        except Exception as e:
+            logger.error(f"Failed to list resource groups: {e}")
+            return []
+    
+    def analyze_specific_resource_group(self, resource_group: str) -> Dict[str, Any]:
+        """
+        Analyze security for a specific resource group
+        
+        Args:
+            resource_group: Name of the resource group
+            
+        Returns:
+            Security findings for the resource group
+        """
+        logger.info(f"Analyzing resource group: {resource_group}")
+        
+        findings = {
+            "resource_group": resource_group,
+            "iam": self.iam_analyzer.analyze_resource_group(resource_group),
+            "storage": self.storage_analyzer.analyze_resource_group(resource_group),
+            "compute": self.compute_analyzer.analyze_resource_group(resource_group),
+            "network": self.network_analyzer.analyze_resource_group(resource_group)
+        }
+        
+        return findings

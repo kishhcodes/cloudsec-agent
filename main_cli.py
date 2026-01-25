@@ -37,6 +37,7 @@ from aws_security_agent import AWSSecurityAgent
 from src.agents.security_analyzer.agent import SecurityPoisoningAgent
 from src.agents.compliance_bot.web_search import WebSearcher
 from src.agents.compliance_bot.compliance_assistant import ComplianceAssistant
+from src.agents.gcp_security.agent import GCPSecurityAgent
 from src.aws_mcp.client import AWSMCPClient
 
 # For LLM
@@ -57,6 +58,7 @@ console = Console()
 class AgentMode:
     """Enum-like class for different agent modes"""
     AWS_SECURITY = "aws-security"
+    GCP_SECURITY = "gcp-security"
     SECURITY_ANALYZER = "security-analyzer"
     COMPLIANCE_CHAT = "compliance-chat"
     ARTICLE_SEARCH = "article-search"
@@ -112,6 +114,8 @@ class CloudAssistant:
             try:
                 if mode == AgentMode.AWS_SECURITY:
                     self.agents[mode] = AWSSecurityAgent()
+                elif mode == AgentMode.GCP_SECURITY:
+                    self.agents[mode] = GCPSecurityAgent()
                 elif mode == AgentMode.SECURITY_ANALYZER:
                     self.agents[mode] = SecurityPoisoningAgent()
                 elif mode == AgentMode.COMPLIANCE_CHAT:
@@ -134,6 +138,7 @@ class CloudAssistant:
         # First check for explicit mode switching commands
         mode_switch_patterns = {
             r"(?i)(?:switch|use|change) (?:to )?(?:aws|aws security)": AgentMode.AWS_SECURITY,
+            r"(?i)(?:switch|use|change) (?:to )?(?:gcp|google cloud|gcp security)": AgentMode.GCP_SECURITY,
             r"(?i)(?:switch|use|change) (?:to )?security(?: analyzer)?": AgentMode.SECURITY_ANALYZER,
             r"(?i)(?:switch|use|change) (?:to )?compliance(?: chat)?": AgentMode.COMPLIANCE_CHAT,
             r"(?i)(?:switch|use|change) (?:to )?article(?: search)?": AgentMode.ARTICLE_SEARCH,
@@ -148,6 +153,7 @@ class CloudAssistant:
         if self.current_mode == AgentMode.GENERAL:
             # Use patterns to detect intent if in general mode
             aws_patterns = [r"aws", r"cloud\s+trail", r"cloudwatch", r"s3\s+bucket", r"lambda", r"ec2"]
+            gcp_patterns = [r"gcp", r"google\s+cloud", r"cloud\s+storage", r"cloud\s+sql", r"compute\s+engine"]
             security_patterns = [r"security\s+poison", r"benchmark", r"compliance\s+tamper", r"cis"]
             compliance_patterns = [r"compliance\s+question", r"standards", r"regulations", r"compliance\s+requirement"]
             article_patterns = [r"article", r"blog\s+post", r"publication", r"wrote", r"author"]
@@ -156,6 +162,10 @@ class CloudAssistant:
             for pattern in aws_patterns:
                 if re.search(pattern, user_input.lower()):
                     return AgentMode.AWS_SECURITY
+            
+            for pattern in gcp_patterns:
+                if re.search(pattern, user_input.lower()):
+                    return AgentMode.GCP_SECURITY
             
             for pattern in security_patterns:
                 if re.search(pattern, user_input.lower()):
@@ -220,6 +230,11 @@ class CloudAssistant:
                     agent = self.agents[AgentMode.AWS_SECURITY]
                     response = agent.process_command(user_input)
                     # AWS agent already prints output, so nothing needed here
+                
+                elif self.current_mode == AgentMode.GCP_SECURITY:
+                    agent = self.agents[AgentMode.GCP_SECURITY]
+                    response = agent.process_command(user_input)
+                    console.print(Markdown(response))
                 
                 elif self.current_mode == AgentMode.SECURITY_ANALYZER:
                     # Convert input to appropriate command for security analyzer
@@ -412,6 +427,7 @@ class CloudAssistant:
         help_table.add_column("Description", style="green")
         
         help_table.add_row("switch to aws", "Switch to AWS Security Agent mode")
+        help_table.add_row("switch to gcp", "Switch to Google Cloud Security Agent mode")
         help_table.add_row("switch to security", "Switch to Security Analyzer mode")
         help_table.add_row("switch to compliance", "Switch to Compliance Chat mode")
         help_table.add_row("switch to article", "Switch to Article Search mode")
@@ -426,7 +442,17 @@ class CloudAssistant:
         console.print(f"\n[bold blue]Current mode:[/bold blue] {self.current_mode}")
         
         # Display mode-specific help
-        if self.current_mode == AgentMode.SECURITY_ANALYZER:
+        if self.current_mode == AgentMode.GCP_SECURITY:
+            console.print("\n[bold]GCP Security Commands:[/bold]")
+            console.print("- Ask about IAM security configuration")
+            console.print("  Example: [dim]Check my IAM security[/dim]")
+            console.print("- Ask about Cloud Storage security")
+            console.print("  Example: [dim]Analyze my Cloud Storage buckets[/dim]")
+            console.print("- Ask about Compute Engine security")
+            console.print("  Example: [dim]Review my Compute Engine instances[/dim]")
+            console.print("- Ask about networking security")
+            console.print("  Example: [dim]Check my VPC configuration[/dim]")
+        elif self.current_mode == AgentMode.SECURITY_ANALYZER:
             console.print("\n[bold]Security Analyzer Commands:[/bold]")
             console.print("- [cyan]scan <file_path> [--pdf][/cyan]: Analyze a file for security poisoning")
             console.print("  Example: [dim]scan data/test_config.json --pdf[/dim]")
@@ -463,6 +489,7 @@ def display_welcome():
     console.print()
     console.print("[dim]Available agents:[/dim]")
     console.print("[dim]- [bold]AWS Security[/bold]: For AWS security questions and commands[/dim]")
+    console.print("[dim]- [bold]GCP Security[/bold]: For Google Cloud Platform security analysis[/dim]")
     console.print("[dim]- [bold]Security Analyzer[/bold]: For detecting security poisoning and configuration tampering[/dim]")
     console.print("[dim]- [bold]Compliance Chat[/bold]: For questions about security compliance standards[/dim]")
     console.print("[dim]- [bold]Article Search[/bold]: For finding relevant security articles and publications[/dim]")
@@ -497,6 +524,7 @@ def main():
         # Get user input with appropriate prompt based on mode
         mode_colors = {
             AgentMode.AWS_SECURITY: "cyan",
+            AgentMode.GCP_SECURITY: "magenta",
             AgentMode.SECURITY_ANALYZER: "red",
             AgentMode.COMPLIANCE_CHAT: "green",
             AgentMode.ARTICLE_SEARCH: "yellow",
