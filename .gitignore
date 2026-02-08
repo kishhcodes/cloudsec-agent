@@ -53,20 +53,31 @@ cloudagent/
 # Environment variables
 .env
 .env.*
+.env.local
+.env.*.local
 
 # AWS specific
 credentials
 .aws/
 aws-credentials
 
+# SMTP and Email Configuration
+*.smtp
+.smtp_config
+smtp_credentials.json
+
 # API credentials and sensitive files
 config/vertex.json
 config/*credentials*.json
 config/*secret*.json
+config/*smtp*
+config/*email*
 *api_key*
 *apikey*
 *credentials*
 *secrets*
+*smtp*password*
+*email*password*
 
 # Logs
 *.log
@@ -104,10 +115,16 @@ data/raw/CIS_*.pdf
 .tox/
 *.cover
 
-# Generated reports
+# Generated reports and test outputs
 reports/*
 !reports/.gitkeep
 *.pdf
+
+# Test artifacts
+test-results/
+*.coverage
+.pytest_cache/
+htmlcov/
 
 # Jupyter Notebooks
 .ipynb_checkpoints

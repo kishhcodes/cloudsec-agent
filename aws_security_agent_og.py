@@ -86,7 +86,7 @@ class AWSSecurityAgent:
         api_key = os.environ.get("GOOGLE_API_KEY")
         if api_key:
             self.llm = ChatGoogleGenerativeAI(
-                model="gemini-2.5-pro",
+                model="gemini-2.5-flash",
                 temperature=0.2,
                 google_api_key=api_key
             )

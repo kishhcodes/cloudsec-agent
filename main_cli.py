@@ -37,7 +37,11 @@ from aws_security_agent import AWSSecurityAgent
 from src.agents.security_analyzer.agent import SecurityPoisoningAgent
 from src.agents.compliance_bot.web_search import WebSearcher
 from src.agents.compliance_bot.compliance_assistant import ComplianceAssistant
+from src.agents.gcp_security.agent import GCPSecurityAgent
+from src.agents.azure_security.agent import AzureSecurityAgent
 from src.aws_mcp.client import AWSMCPClient
+from src.azure_mcp.client import AzureMCPClient
+from src.gcp_mcp.client import GCPMCPClient
 
 # For LLM
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -57,6 +61,11 @@ console = Console()
 class AgentMode:
     """Enum-like class for different agent modes"""
     AWS_SECURITY = "aws-security"
+    AWS_MCP = "aws-mcp"
+    GCP_SECURITY = "gcp-security"
+    GCP_MCP = "gcp-mcp"
+    AZURE_SECURITY = "azure-security"
+    AZURE_MCP = "azure-mcp"
     SECURITY_ANALYZER = "security-analyzer"
     COMPLIANCE_CHAT = "compliance-chat"
     ARTICLE_SEARCH = "article-search"
@@ -86,7 +95,7 @@ class CloudAssistant:
                 raise ValueError("No Google API key found in environment variables")
             
             # Initialize the LLM
-            model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-pro")
+            model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-flash")
             return ChatGoogleGenerativeAI(
                 model=model_name,
                 temperature=0.2,
@@ -112,6 +121,22 @@ class CloudAssistant:
             try:
                 if mode == AgentMode.AWS_SECURITY:
                     self.agents[mode] = AWSSecurityAgent()
+                elif mode == AgentMode.AWS_MCP:
+                    client = AWSMCPClient()
+                    client.start()
+                    self.agents[mode] = client
+                elif mode == AgentMode.GCP_SECURITY:
+                    self.agents[mode] = GCPSecurityAgent()
+                elif mode == AgentMode.GCP_MCP:
+                    client = GCPMCPClient()
+                    client.start()
+                    self.agents[mode] = client
+                elif mode == AgentMode.AZURE_SECURITY:
+                    self.agents[mode] = AzureSecurityAgent()
+                elif mode == AgentMode.AZURE_MCP:
+                    client = AzureMCPClient()
+                    client.start()
+                    self.agents[mode] = client
                 elif mode == AgentMode.SECURITY_ANALYZER:
                     self.agents[mode] = SecurityPoisoningAgent()
                 elif mode == AgentMode.COMPLIANCE_CHAT:
@@ -132,8 +157,16 @@ class CloudAssistant:
         Returns the agent mode.
         """
         # First check for explicit mode switching commands
+        # NOTE: More specific patterns must come before less specific ones!
         mode_switch_patterns = {
+            # MCP patterns (more specific, must come first)
+            r"(?i)(?:switch|use|change) (?:to )?(?:aws\s+mcp)": AgentMode.AWS_MCP,
+            r"(?i)(?:switch|use|change) (?:to )?(?:gcp\s+mcp)": AgentMode.GCP_MCP,
+            r"(?i)(?:switch|use|change) (?:to )?(?:azure\s+mcp)": AgentMode.AZURE_MCP,
+            # Agent patterns (less specific)
             r"(?i)(?:switch|use|change) (?:to )?(?:aws|aws security)": AgentMode.AWS_SECURITY,
+            r"(?i)(?:switch|use|change) (?:to )?(?:gcp|google cloud|gcp security)": AgentMode.GCP_SECURITY,
+            r"(?i)(?:switch|use|change) (?:to )?(?:azure|azure security|microsoft azure)": AgentMode.AZURE_SECURITY,
             r"(?i)(?:switch|use|change) (?:to )?security(?: analyzer)?": AgentMode.SECURITY_ANALYZER,
             r"(?i)(?:switch|use|change) (?:to )?compliance(?: chat)?": AgentMode.COMPLIANCE_CHAT,
             r"(?i)(?:switch|use|change) (?:to )?article(?: search)?": AgentMode.ARTICLE_SEARCH,
@@ -148,14 +181,39 @@ class CloudAssistant:
         if self.current_mode == AgentMode.GENERAL:
             # Use patterns to detect intent if in general mode
             aws_patterns = [r"aws", r"cloud\s+trail", r"cloudwatch", r"s3\s+bucket", r"lambda", r"ec2"]
+            aws_mcp_patterns = [r"aws\s+mcp", r"gcloud|gsutil.*aws", r"aws\s+command", r"run\s+aws\s+cli"]
+            gcp_patterns = [r"gcp", r"google\s+cloud", r"cloud\s+storage", r"cloud\s+sql", r"compute\s+engine"]
+            gcp_mcp_patterns = [r"gcp\s+mcp", r"gcloud\s+command", r"gsutil\s+command", r"run\s+gcloud"]
+            azure_patterns = [r"azure", r"microsoft\s+azure", r"entra\s+id", r"azure\s+ad", r"storage\s+account", r"virtual\s+machine", r"azure\s+sql", r"sql\s+database", r"sql\s+server", r"cosmos\s+db"]
+            azure_mcp_patterns = [r"azure\s+mcp", r"az\s+command", r"run\s+azure\s+cli"]
             security_patterns = [r"security\s+poison", r"benchmark", r"compliance\s+tamper", r"cis"]
             compliance_patterns = [r"compliance\s+question", r"standards", r"regulations", r"compliance\s+requirement"]
             article_patterns = [r"article", r"blog\s+post", r"publication", r"wrote", r"author"]
             
-            # Check patterns
+            # Check patterns (MCP patterns first for priority)
+            for pattern in aws_mcp_patterns:
+                if re.search(pattern, user_input.lower()):
+                    return AgentMode.AWS_MCP
+            
+            for pattern in gcp_mcp_patterns:
+                if re.search(pattern, user_input.lower()):
+                    return AgentMode.GCP_MCP
+            
+            for pattern in azure_mcp_patterns:
+                if re.search(pattern, user_input.lower()):
+                    return AgentMode.AZURE_MCP
+            
             for pattern in aws_patterns:
                 if re.search(pattern, user_input.lower()):
                     return AgentMode.AWS_SECURITY
+            
+            for pattern in gcp_patterns:
+                if re.search(pattern, user_input.lower()):
+                    return AgentMode.GCP_SECURITY
+            
+            for pattern in azure_patterns:
+                if re.search(pattern, user_input.lower()):
+                    return AgentMode.AZURE_SECURITY
             
             for pattern in security_patterns:
                 if re.search(pattern, user_input.lower()):
@@ -220,6 +278,40 @@ class CloudAssistant:
                     agent = self.agents[AgentMode.AWS_SECURITY]
                     response = agent.process_command(user_input)
                     # AWS agent already prints output, so nothing needed here
+                
+                elif self.current_mode == AgentMode.AWS_MCP:
+                    client = self.agents[AgentMode.AWS_MCP]
+                    response = client.execute_command(user_input)
+                    if response.get("status") == "success":
+                        console.print(Markdown(response.get("output", "Command executed successfully")))
+                    else:
+                        console.print(f"[bold red]Error:[/bold red] {response.get('output', 'Unknown error')}")
+                
+                elif self.current_mode == AgentMode.GCP_SECURITY:
+                    agent = self.agents[AgentMode.GCP_SECURITY]
+                    response = agent.process_command(user_input)
+                    console.print(Markdown(response))
+                
+                elif self.current_mode == AgentMode.GCP_MCP:
+                    client = self.agents[AgentMode.GCP_MCP]
+                    response = client.execute_command(user_input)
+                    if response.get("status") == "success":
+                        console.print(Markdown(response.get("output", "Command executed successfully")))
+                    else:
+                        console.print(f"[bold red]Error:[/bold red] {response.get('output', 'Unknown error')}")
+                
+                elif self.current_mode == AgentMode.AZURE_SECURITY:
+                    agent = self.agents[AgentMode.AZURE_SECURITY]
+                    response = agent.process_command(user_input)
+                    console.print(Markdown(response))
+                
+                elif self.current_mode == AgentMode.AZURE_MCP:
+                    client = self.agents[AgentMode.AZURE_MCP]
+                    response = client.execute_command(user_input)
+                    if response.get("status") == "success":
+                        console.print(Markdown(response.get("output", "Command executed successfully")))
+                    else:
+                        console.print(f"[bold red]Error:[/bold red] {response.get('output', 'Unknown error')}")
                 
                 elif self.current_mode == AgentMode.SECURITY_ANALYZER:
                     # Convert input to appropriate command for security analyzer
@@ -412,6 +504,11 @@ class CloudAssistant:
         help_table.add_column("Description", style="green")
         
         help_table.add_row("switch to aws", "Switch to AWS Security Agent mode")
+        help_table.add_row("switch to aws mcp", "Switch to AWS MCP (Model Context Protocol) mode")
+        help_table.add_row("switch to gcp", "Switch to Google Cloud Security Agent mode")
+        help_table.add_row("switch to gcp mcp", "Switch to GCP MCP (gcloud CLI) mode")
+        help_table.add_row("switch to azure", "Switch to Azure Security Agent mode")
+        help_table.add_row("switch to azure mcp", "Switch to Azure MCP (az CLI) mode")
         help_table.add_row("switch to security", "Switch to Security Analyzer mode")
         help_table.add_row("switch to compliance", "Switch to Compliance Chat mode")
         help_table.add_row("switch to article", "Switch to Article Search mode")
@@ -426,7 +523,42 @@ class CloudAssistant:
         console.print(f"\n[bold blue]Current mode:[/bold blue] {self.current_mode}")
         
         # Display mode-specific help
-        if self.current_mode == AgentMode.SECURITY_ANALYZER:
+        if self.current_mode == AgentMode.GCP_SECURITY:
+            console.print("\n[bold]GCP Security Commands:[/bold]")
+            console.print("- Ask about IAM security configuration")
+            console.print("  Example: [dim]Check my IAM security[/dim]")
+            console.print("- Ask about Cloud Storage security")
+            console.print("  Example: [dim]Analyze my Cloud Storage buckets[/dim]")
+            console.print("- Ask about Compute Engine security")
+            console.print("  Example: [dim]Review my Compute Engine instances[/dim]")
+            console.print("- Ask about networking security")
+            console.print("  Example: [dim]Check my VPC configuration[/dim]")
+        elif self.current_mode == AgentMode.GCP_MCP:
+            console.print("\n[bold]GCP MCP Commands:[/bold]")
+            console.print("- Execute gcloud commands directly")
+            console.print("  Example: [dim]gcloud compute instances list[/dim]")
+            console.print("- Use natural language for gcloud commands")
+            console.print("  Example: [dim]list my instances[/dim]")
+            console.print("- Pipe commands with Unix utilities")
+            console.print("  Example: [dim]gcloud compute instances list | grep running[/dim]")
+            console.print("- Type [cyan]info[/cyan] to see current project")
+        elif self.current_mode == AgentMode.AWS_MCP:
+            console.print("\n[bold]AWS MCP Commands:[/bold]")
+            console.print("- Execute aws CLI commands directly")
+            console.print("  Example: [dim]aws ec2 describe-instances[/dim]")
+            console.print("- Use natural language for aws commands")
+            console.print("  Example: [dim]list my instances[/dim]")
+            console.print("- Pipe commands with Unix utilities")
+            console.print("  Example: [dim]aws ec2 describe-instances | grep running[/dim]")
+        elif self.current_mode == AgentMode.AZURE_MCP:
+            console.print("\n[bold]Azure MCP Commands:[/bold]")
+            console.print("- Execute az CLI commands directly")
+            console.print("  Example: [dim]az vm list[/dim]")
+            console.print("- Use natural language for az commands")
+            console.print("  Example: [dim]list my vms[/dim]")
+            console.print("- Pipe commands with Unix utilities")
+            console.print("  Example: [dim]az vm list | grep running[/dim]")
+        elif self.current_mode == AgentMode.SECURITY_ANALYZER:
             console.print("\n[bold]Security Analyzer Commands:[/bold]")
             console.print("- [cyan]scan <file_path> [--pdf][/cyan]: Analyze a file for security poisoning")
             console.print("  Example: [dim]scan data/test_config.json --pdf[/dim]")
@@ -463,6 +595,11 @@ def display_welcome():
     console.print()
     console.print("[dim]Available agents:[/dim]")
     console.print("[dim]- [bold]AWS Security[/bold]: For AWS security questions and commands[/dim]")
+    console.print("[dim]- [bold]AWS MCP[/bold]: For direct AWS CLI (aws) command execution[/dim]")
+    console.print("[dim]- [bold]GCP Security[/bold]: For Google Cloud Platform security analysis[/dim]")
+    console.print("[dim]- [bold]GCP MCP[/bold]: For direct GCP CLI (gcloud/gsutil) command execution[/dim]")
+    console.print("[dim]- [bold]Azure Security[/bold]: For Microsoft Azure security analysis[/dim]")
+    console.print("[dim]- [bold]Azure MCP[/bold]: For direct Azure CLI (az) command execution[/dim]")
     console.print("[dim]- [bold]Security Analyzer[/bold]: For detecting security poisoning and configuration tampering[/dim]")
     console.print("[dim]- [bold]Compliance Chat[/bold]: For questions about security compliance standards[/dim]")
     console.print("[dim]- [bold]Article Search[/bold]: For finding relevant security articles and publications[/dim]")
@@ -474,6 +611,199 @@ def display_welcome():
     console.print("[dim]- Type [bold]'clear'[/bold] or [bold]'cls'[/bold] to clear the screen[/dim]")
     console.print("[dim]- Type [bold]'exit'[/bold] or [bold]'quit'[/bold] to end the session[/dim]")
     console.print()
+
+
+@app.command()
+def export(
+    format: str = typer.Option("json", help="Export format: json, csv, html"),
+    report_id: str = typer.Option("demo-report", help="Report ID to export"),
+    output: str = typer.Option(None, help="Output file path (optional)")
+):
+    """Export audit report in multiple formats."""
+    try:
+        from src.audit.exporters import JSONExporter, CSVExporter, HTMLExporter
+        
+        console.print(f"\n[bold cyan]Exporting Report to {format.upper()}[/bold cyan]")
+        
+        # Create sample report data
+        report_data = {
+            "id": report_id,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "findings": [
+                {
+                    "id": "FIND-001",
+                    "severity": "CRITICAL",
+                    "category": "Storage",
+                    "title": "Public S3 Bucket",
+                    "resource": "my-bucket",
+                    "description": "Bucket is publicly accessible"
+                },
+                {
+                    "id": "FIND-002", 
+                    "severity": "HIGH",
+                    "category": "Security",
+                    "title": "Unencrypted EBS",
+                    "resource": "vol-12345",
+                    "description": "EBS volume not encrypted"
+                }
+            ],
+            "statistics": {
+                "total_findings": 2,
+                "critical": 1,
+                "high": 1,
+                "medium": 0
+            }
+        }
+        
+        if format.lower() == "json":
+            exporter = JSONExporter()
+            output_file = output or f"reports/export_{report_id}.json"
+            exporter.export_report(report_data, output_file)
+            console.print(f"[green]✅ JSON export successful[/green]")
+            console.print(f"[dim]File: {output_file}[/dim]")
+            
+        elif format.lower() == "csv":
+            exporter = CSVExporter()
+            output_file = output or f"reports/export_{report_id}.csv"
+            exporter.export_findings_to_csv(report_data["findings"], output_file)
+            console.print(f"[green]✅ CSV export successful[/green]")
+            console.print(f"[dim]File: {output_file}[/dim]")
+            
+        elif format.lower() == "html":
+            exporter = HTMLExporter()
+            output_file = output or f"reports/export_{report_id}.html"
+            exporter.export_email_template(report_data, output_file)
+            console.print(f"[green]✅ HTML export successful[/green]")
+            console.print(f"[dim]File: {output_file}[/dim]")
+            
+        else:
+            console.print(f"[red]❌ Unknown format: {format}[/red]")
+            console.print(f"[dim]Supported formats: json, csv, html[/dim]")
+            sys.exit(1)
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Error:[/bold red] {str(e)}")
+        sys.exit(1)
+
+
+@app.command()
+def remediate(
+    finding_id: str = typer.Option(..., help="Finding ID to remediate"),
+    dry_run: bool = typer.Option(True, help="Test without making changes"),
+    auto_approve: bool = typer.Option(False, help="Auto-approve without asking")
+):
+    """Execute remediation playbook for a finding."""
+    try:
+        from src.remediation import PlaybookExecutor, PlaybookLibrary
+        from src.audit.exporters import CSVExporter
+        
+        console.print("\n[bold cyan]Starting Remediation Workflow[/bold cyan]")
+        
+        # Load playbooks
+        executor = PlaybookExecutor()
+        playbooks = PlaybookLibrary.get_all_playbooks()
+        
+        console.print(f"[dim]Finding ID: {finding_id}[/dim]")
+        console.print(f"[dim]Dry-run mode: {dry_run}[/dim]")
+        
+        # Try to find matching playbook
+        matching_playbook = None
+        for pb_name, pb in playbooks.items():
+            if finding_id.upper() in pb_name:
+                matching_playbook = pb
+                break
+        
+        if not matching_playbook:
+            # Default to AWS-PUBLIC-S3 for demo
+            matching_playbook = playbooks.get("AWS-PUBLIC-S3")
+            console.print(f"[yellow]No exact match found, using {matching_playbook.name}[/yellow]")
+        
+        # Execute playbook
+        execution = executor.execute_playbook(
+            playbook=matching_playbook,
+            finding_data={"id": finding_id, "resource": "test-resource"},
+            initiated_by=os.getenv("USER", "system"),
+            dry_run=dry_run
+        )
+        
+        console.print(f"\n[bold green]✅ Execution Created[/bold green]")
+        console.print(f"[dim]Execution ID: {execution.execution_id}[/dim]")
+        console.print(f"[dim]Status: {execution.status.value}[/dim]")
+        console.print(f"[dim]Playbook: {execution.playbook_name}[/dim]")
+        console.print(f"[dim]Actions: {len(execution.actions)}[/dim]")
+        
+        # Show approval workflow
+        if execution.approval_required and not dry_run:
+            if auto_approve:
+                executor.approve_execution(execution.execution_id, "auto-system")
+                console.print(f"[green]✅ Auto-approved[/green]")
+            else:
+                console.print(f"\n[yellow]⏳ Waiting for approval...[/yellow]")
+                console.print(f"[dim]To approve, run: remediate {finding_id} --auto-approve[/dim]")
+        
+        console.print("\n[bold green]Remediation workflow ready[/bold green]")
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Error:[/bold red] {str(e)}")
+        sys.exit(1)
+
+
+@app.command()
+def playbook_list(
+    severity: str = typer.Option(None, help="Filter by severity (CRITICAL, HIGH, MEDIUM, LOW)")
+):
+    """List all available remediation playbooks."""
+    try:
+        from src.remediation import PlaybookLibrary
+        
+        console.print("\n[bold cyan]Available Remediation Playbooks[/bold cyan]\n")
+        
+        playbooks = PlaybookLibrary.get_all_playbooks()
+        
+        # Create table
+        table = Table(box=box.ROUNDED, title="Playbook Library")
+        table.add_column("Name", style="cyan")
+        table.add_column("Category", style="magenta")
+        table.add_column("Severity", style="yellow")
+        table.add_column("Description", style="green")
+        table.add_column("Actions", style="dim")
+        
+        severity_colors = {
+            "CRITICAL": "[bold red]CRITICAL[/bold red]",
+            "HIGH": "[bold orange]HIGH[/bold orange]",
+            "MEDIUM": "[bold yellow]MEDIUM[/bold yellow]",
+            "LOW": "[bold green]LOW[/bold green]"
+        }
+        
+        # Filter by severity if specified
+        for pb_name, pb in sorted(playbooks.items()):
+            if severity and pb.severity != severity.upper():
+                continue
+            
+            severity_display = severity_colors.get(pb.severity, pb.severity)
+            
+            table.add_row(
+                pb.name,
+                pb.category,
+                severity_display,
+                pb.description[:40] + "..." if len(pb.description) > 40 else pb.description,
+                str(len(pb.actions))
+            )
+        
+        console.print(table)
+        
+        # Show summary
+        total = len(playbooks)
+        critical_count = sum(1 for p in playbooks.values() if p.severity == "CRITICAL")
+        high_count = sum(1 for p in playbooks.values() if p.severity == "HIGH")
+        
+        console.print(f"\n[dim]Total Playbooks: {total}[/dim]")
+        console.print(f"[bold red]CRITICAL: {critical_count}[/bold red] | [bold orange]HIGH: {high_count}[/bold orange]")
+        console.print(f"\n[dim]Usage: remediate --finding-id <finding-id> --dry-run[/dim]")
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Error:[/bold red] {str(e)}")
+        sys.exit(1)
 
 
 @app.command()
@@ -497,6 +827,11 @@ def main():
         # Get user input with appropriate prompt based on mode
         mode_colors = {
             AgentMode.AWS_SECURITY: "cyan",
+            AgentMode.AWS_MCP: "bright_cyan",
+            AgentMode.GCP_SECURITY: "magenta",
+            AgentMode.GCP_MCP: "bright_magenta",
+            AgentMode.AZURE_SECURITY: "bright_blue",
+            AgentMode.AZURE_MCP: "blue",
             AgentMode.SECURITY_ANALYZER: "red",
             AgentMode.COMPLIANCE_CHAT: "green",
             AgentMode.ARTICLE_SEARCH: "yellow",

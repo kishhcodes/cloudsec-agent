@@ -51,7 +51,7 @@ def analyze_with_gemini(command, output):
     console.print("[yellow]🤖 Gemini analyzing...[/yellow]")
     
     try:
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0.1)
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
         
         messages = [
             SystemMessage(content="You are an AWS security expert. Analyze this AWS command output for security issues and provide specific recommendations."),

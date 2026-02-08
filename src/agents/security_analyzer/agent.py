@@ -28,7 +28,7 @@ class SecurityPoisoningAgent:
         self.api_key = google_api_key or os.getenv("GOOGLE_API_KEY")
         if self.api_key:
             self.llm = ChatGoogleGenerativeAI(
-                model="gemini-2.5-pro",
+                model="gemini-2.5-flash",
                 temperature=0.2
             )
         else:

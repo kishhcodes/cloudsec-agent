@@ -23,7 +23,7 @@ class ComplianceLLM:
             genai.configure(api_key=self.api_key)
         
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-pro",
+            model="gemini-2.5-flash",
             temperature=0.2
         )
     
